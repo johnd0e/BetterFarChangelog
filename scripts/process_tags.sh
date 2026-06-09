@@ -1,14 +1,17 @@
 #!/bin/bash
 # Orchestrates the full pipeline: fetch upstream tags, find unreleased ones,
 # generate changelogs and publish GitHub Releases in ascending version order.
+# Tags are numeric: builds/NNNN (e.g. builds/6676).
 # Exits on the first failure so the next manual run resumes from the same tag.
 set -euo pipefail
 
-echo "Fetching upstream tags..."
+echo "Fetching upstream tags from $UPSTREAM_REPO ..."
 git remote add upstream "$UPSTREAM_REPO" 2>/dev/null || true
 git fetch upstream --tags --force
 
-# List all upstream tags matching 'builds/*', sorted oldest-first (v:refname = version sort)
+# List all upstream tags matching 'builds/*', sorted oldest-first.
+# 'v:refname' applies version sort, which correctly orders numeric suffixes
+# (builds/6600 < builds/6610 < builds/6676).
 UPSTREAM_TAGS=$(git ls-remote --tags --sort=v:refname upstream "refs/tags/builds/*" \
   | awk -F'refs/tags/' '{print $2}' \
   | grep -v '\^{}')
@@ -19,8 +22,8 @@ if [ -z "$UPSTREAM_TAGS" ]; then
 fi
 
 # Fetch the list of already-published releases from THIS repository.
-# Using the Releases API is more reliable than checking local git tags,
-# because a previous run may have pushed a tag but failed before creating the release.
+# Comparing against existing Releases (not local git tags) is intentional:
+# a previous run may have pushed a tag but crashed before creating the release.
 RELEASED_TAGS=$(gh release list --limit 1000 --json tagName --jq '.[].tagName' 2>/dev/null || true)
 
 PROCESSED=0
@@ -34,51 +37,57 @@ for TAG in $UPSTREAM_TAGS; do
     echo "=========================================="
     echo "[$TAG] New unreleased tag found. Processing..."
 
-    # Resolve the commit SHA that this tag points to (needed for CI status API).
-    # '^{}' dereferences annotated tags to the underlying commit object.
+    # Resolve the upstream commit SHA this tag points to.
+    # Try the peeled (^{}) form first — that handles annotated tags.
+    # Fall back to the plain ref for lightweight tags.
     COMMIT_SHA=$(git ls-remote upstream "refs/tags/$TAG^{}" | awk '{print $1}')
     if [ -z "$COMMIT_SHA" ]; then
-        # Lightweight tag: SHA is the tag ref itself
         COMMIT_SHA=$(git ls-remote upstream "refs/tags/$TAG" | awk '{print $1}')
     fi
 
     # --- CI Status: pending ---
+    # We post the status to the UPSTREAM repo's commit so it appears in FarManager's history.
+    # Note: GITHUB_TOKEN has statuses:write scope only for our own repo by default.
+    # For upstream commit statuses to work, a PAT with repo scope must be stored
+    # as a repository secret named UPSTREAM_STATUS_TOKEN and substituted here.
     if [ -n "$COMMIT_SHA" ]; then
-        echo "[$TAG] Setting CI status to 'pending' on $COMMIT_SHA"
+        echo "[$TAG] Setting CI status to 'pending' on upstream commit $COMMIT_SHA"
         gh api --method POST \
           -H "Accept: application/vnd.github+json" \
-          "repos/{owner}/{repo}/statuses/$COMMIT_SHA" \
+          "/repos/$UPSTREAM_OWNER/$UPSTREAM_REPO_NAME/statuses/$COMMIT_SHA" \
           -f state='pending' \
           -f description='Generating release notes...' \
-          -f context='BetterFarChangelog' || true
+          -f context='BetterFarChangelog' \
+          --hostname github.com || echo "[$TAG] Warning: could not set pending status (token may lack scope)."
     fi
 
     # --- Changelog generation ---
     CHANGELOG_FILE="$(mktemp /tmp/changelog_XXXXXX.md)"
     echo "[$TAG] Calling generate_changelog.sh..."
-    # The script must exit non-zero on failure; set -e will then stop this script.
+    # generate_changelog.sh must exit non-zero on failure;
+    # set -e will then abort this script immediately.
     ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE"
 
-    # --- Push the tag to origin so the release can be attached to it ---
+    # --- Push the tag into our own origin so the release can reference it ---
     echo "[$TAG] Pushing tag to origin..."
-    git push origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+    git push origin "refs/tags/$TAG:refs/tags/$TAG" || echo "[$TAG] Warning: tag already exists in origin."
 
-    # --- Create GitHub Release ---
+    # --- Create GitHub Release in our repository ---
     echo "[$TAG] Creating GitHub Release..."
     if gh release create "$TAG" \
-        --title "Build $TAG" \
+        --title "FarManager Build $TAG" \
         --notes-file "$CHANGELOG_FILE"; then
 
         echo "[$TAG] Release created successfully."
 
-        # --- CI Status: success ---
         if [ -n "$COMMIT_SHA" ]; then
             gh api --method POST \
               -H "Accept: application/vnd.github+json" \
-              "repos/{owner}/{repo}/statuses/$COMMIT_SHA" \
+              "/repos/$UPSTREAM_OWNER/$UPSTREAM_REPO_NAME/statuses/$COMMIT_SHA" \
               -f state='success' \
-              -f description='Release published successfully!' \
-              -f context='BetterFarChangelog' || true
+              -f description='BetterFarChangelog release published!' \
+              -f context='BetterFarChangelog' \
+              --hostname github.com || true
         fi
 
         PROCESSED=$((PROCESSED + 1))
@@ -86,18 +95,18 @@ for TAG in $UPSTREAM_TAGS; do
     else
         echo "[$TAG] ERROR: gh release create failed."
 
-        # --- CI Status: error ---
         if [ -n "$COMMIT_SHA" ]; then
             gh api --method POST \
               -H "Accept: application/vnd.github+json" \
-              "repos/{owner}/{repo}/statuses/$COMMIT_SHA" \
+              "/repos/$UPSTREAM_OWNER/$UPSTREAM_REPO_NAME/statuses/$COMMIT_SHA" \
               -f state='error' \
-              -f description='Release creation failed.' \
-              -f context='BetterFarChangelog' || true
+              -f description='BetterFarChangelog: release creation failed.' \
+              -f context='BetterFarChangelog' \
+              --hostname github.com || true
         fi
 
         rm -f "$CHANGELOG_FILE"
-        echo "Stopping. Re-trigger the workflow manually after fixing the issue."
+        echo "Stopping. Fix the issue and re-trigger the workflow manually (or push to automation branch)."
         exit 1
     fi
 done
