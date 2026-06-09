@@ -1,0 +1,38 @@
+name: Release Builds Monitor
+
+on:
+  schedule:
+    # Run daily at midnight UTC. Scheduled workflows only run on the default branch.
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # Manual trigger available from the Actions tab (no inputs required).
+  push:
+    # Re-trigger automatically when automation code in this branch is updated.
+    branches:
+      - automation
+
+env:
+  # Target repository to monitor for new builds/* tags
+  UPSTREAM_REPO: "https://github.com/FarGroup/FarManager.git"
+
+jobs:
+  process-releases:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # Push tags and create GitHub Releases
+      statuses: write   # Post CI commit statuses to upstream commits
+
+    steps:
+      - name: Checkout automation branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # Full history required for git log between tags
+
+      - name: Make scripts executable
+        run: chmod +x ./scripts/*.sh
+
+      - name: Process tags and create releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: ${{ env.UPSTREAM_REPO }}
+        run: ./scripts/process_tags.sh
