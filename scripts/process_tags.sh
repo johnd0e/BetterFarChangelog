@@ -47,9 +47,6 @@ RELEASED_COUNT=$(echo "$RELEASED_TAGS" | grep -c '.' || true)
 info "Already released: $RELEASED_COUNT"
 
 section "Collecting upstream tags"
-
-# Read ALL upstream tags into a variable first to avoid SIGPIPE when downstream
-# commands (awk, head) close the pipe before git tag finishes writing.
 ALL_TAGS=$(git tag --list 'builds/*' --sort=version:refname)
 
 if [ -z "$ALL_TAGS" ]; then
@@ -57,14 +54,29 @@ if [ -z "$ALL_TAGS" ]; then
     exit 1
 fi
 
-if [ "$MODE" = "auto" ]; then
-    UNRELEASED=$(echo "$ALL_TAGS" | grep -vxF -f <(echo "$RELEASED_TAGS") || true)
-    WORK_TAGS=$(echo "$UNRELEASED" | head -n "$EFFECTIVE_LIMIT")
+# Filter unreleased: awk lookup against RELEASED_TAGS, fully in-memory, no pipes to head
+filter_unreleased() {
+    local tags="$1"
+    # Build a lookup of released tags, then print only those not in it
+    echo "$tags" | awk -v released="$RELEASED_TAGS" '
+        BEGIN { while ((getline line < "/dev/stdin") > 0) released_set[line]=1 }
+        !released_set[$0]
+    ' || true
+}
 
-    if [ -z "$WORK_TAGS" ]; then
+if [ "$MODE" = "auto" ]; then
+    UNRELEASED=$(echo "$ALL_TAGS" | awk -v released="$RELEASED_TAGS" '
+        BEGIN { n=split(released, a, "\n"); for(i=1;i<=n;i++) rel[a[i]]=1 }
+        !rel[$0]
+    ')
+
+    if [ -z "$UNRELEASED" ]; then
         info "No new tags to release."
         exit 0
     fi
+
+    # Apply limit in-memory
+    WORK_TAGS=$(echo "$UNRELEASED" | awk -v lim="$EFFECTIVE_LIMIT" 'NR<=lim')
     COUNT=$(echo "$WORK_TAGS" | wc -l | tr -d ' ')
     info "Found $COUNT unreleased tag(s) to process (limit: $EFFECTIVE_LIMIT)."
 else
@@ -75,13 +87,17 @@ else
         exit 1
     fi
 
-    UNRELEASED=$(echo "$ALL_FROM_START" | grep -vxF -f <(echo "$RELEASED_TAGS") || true)
-    WORK_TAGS=$(echo "$UNRELEASED" | head -n "$EFFECTIVE_LIMIT")
+    UNRELEASED=$(echo "$ALL_FROM_START" | awk -v released="$RELEASED_TAGS" '
+        BEGIN { n=split(released, a, "\n"); for(i=1;i<=n;i++) rel[a[i]]=1 }
+        !rel[$0]
+    ')
 
-    if [ -z "$WORK_TAGS" ]; then
+    if [ -z "$UNRELEASED" ]; then
         info "All tags from '$START_TAG' onwards are already released."
         exit 0
     fi
+
+    WORK_TAGS=$(echo "$UNRELEASED" | awk -v lim="$EFFECTIVE_LIMIT" 'NR<=lim')
     COUNT=$(echo "$WORK_TAGS" | wc -l | tr -d ' ')
     info "Found $COUNT unreleased tag(s) starting from '$START_TAG' (limit: $EFFECTIVE_LIMIT)."
 fi
@@ -91,7 +107,6 @@ PROCESSED=0
 for TAG in $WORK_TAGS; do
     section "[$TAG]"
 
-    # Find previous tag: read all tags into variable first, then awk — no SIGPIPE
     PREV_TAG=$(echo "$ALL_TAGS" | awk -v tag="$TAG" 'prev && $0 == tag { print prev; exit } { prev = $0 }')
 
     CHANGELOG_FILE=$(mktemp /tmp/changelog_XXXXXX.md)
