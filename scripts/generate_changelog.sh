@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Trap any unexpected error and print the line number
+trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit code $?). TAG=${TAG:-?}"' ERR
+
 TAG="$1"
 OUTPUT_FILE="$2"
 COMPARE_BASE="${UPSTREAM_COMPARE_BASE:-https://github.com/FarGroup/FarManager/compare}"
@@ -8,29 +11,25 @@ COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/comm
 
 echo "[generate_changelog.sh] TAG=$TAG"
 
-# Find the immediately preceding tag.
-# sort -rV handles all tag name formats (numeric, semver, mixed).
-# Empty result is normal for the very first tag — not an error.
+# Find the immediately preceding tag using git's own version sort (no external sort -V needed).
+# --sort=-version:refname gives descending order; we find our tag and print the next line.
 echo "[generate_changelog.sh] Looking for previous tag..."
-PREV_TAG=$(git tag --list 'builds/*' --sort=version:refname \
-  | sort -rV \
+PREV_TAG=$(git tag --list 'builds/*' --sort=-version:refname \
   | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
 echo "[generate_changelog.sh] Previous tag: ${PREV_TAG:-none}"
 
-# Init COMMITS so set -u doesn't complain when PREV_TAG is empty
+# COMMITS must be initialised before the conditional block (set -u requirement)
 COMMITS=""
 
 if [ -n "$PREV_TAG" ]; then
-    echo "[generate_changelog.sh] Building commit list for ${PREV_TAG}..${TAG}..."
+    echo "[generate_changelog.sh] Running git log ${PREV_TAG}..${TAG}..."
     COMMITS=$(git log "${PREV_TAG}..${TAG}" --no-merges \
-      --pretty=format:"* %s ([%h]($COMMIT_BASE/%H))") || {
-        echo "::error::[generate_changelog.sh] git log failed for range ${PREV_TAG}..${TAG}"
-        exit 1
-    }
-    echo "[generate_changelog.sh] Commits found: $(echo "$COMMITS" | grep -c '^' || true)"
+      --pretty=format:"* %s ([%h]($COMMIT_BASE/%H))")
+    COUNT=$(echo "$COMMITS" | grep -c '^\*' || true)
+    echo "[generate_changelog.sh] Commits found: $COUNT"
 fi
 
-echo "[generate_changelog.sh] Writing output file..."
+echo "[generate_changelog.sh] Writing $OUTPUT_FILE..."
 {
   echo "# $TAG"
   echo ""
@@ -50,12 +49,9 @@ echo "[generate_changelog.sh] Writing output file..."
       echo ""
     fi
   else
-    echo "_First tracked release — no previous build available._"
+    echo "_First tracked release \u2014 no previous build available._"
     echo ""
   fi
-} > "$OUTPUT_FILE" || {
-    echo "::error::[generate_changelog.sh] Failed to write output file $OUTPUT_FILE"
-    exit 1
-}
+} > "$OUTPUT_FILE"
 
 echo "[generate_changelog.sh] Done. Wrote $(wc -l < "$OUTPUT_FILE") line(s)."

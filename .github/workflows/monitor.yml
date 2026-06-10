@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       start_tag:
-        description: 'Start from this tag (example: builds/6676). Empty = dry-run for the latest tag only.'
+        description: 'Start from this tag (example: builds/3.0.6695). Empty = dry-run for the latest tag only.'
         required: false
         type: string
       limit:
@@ -22,6 +22,7 @@ env:
   UPSTREAM_REPO: 'https://github.com/FarGroup/FarManager.git'
   UPSTREAM_COMPARE_BASE: 'https://github.com/FarGroup/FarManager/compare'
   UPSTREAM_COMMIT_BASE: 'https://github.com/FarGroup/FarManager/commit'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   process-releases:
@@ -31,7 +32,7 @@ jobs:
 
     steps:
       - name: Checkout automation branch
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
