@@ -2,76 +2,71 @@
 
 Automated changelog generator and GitHub Releases publisher for [FarManager](https://github.com/FarGroup/FarManager) builds.
 
-This repository monitors `FarGroup/FarManager` for new CI tags, generates release notes, and publishes GitHub Releases under the same tag names.
-
-## Tag format
-
-FarManager uses tags in the format `ci/v3.0.BBBB.NNNN` where:
-- `BBBB` = build number (e.g. `6695`)
-- `NNNN` = CI run number (e.g. `4886`)
-
-One build number can have multiple tags (multiple CI runs). The pipeline groups tags by build number and takes the **latest CI run** (highest `NNNN`) as the representative tag for each build.
+This repository monitors `FarGroup/FarManager` for new `builds/*` tags, generates release notes with compare links, and publishes GitHub Releases.
 
 ## Repository structure
 
 ```
 .github/workflows/monitor.yml   — scheduled / manual workflow
-scripts/process_tags.sh         — orchestration: fetch, group, filter, publish
-scripts/generate_changelog.sh   — generate release notes for one build
+scripts/process_tags.sh         — orchestration: fetch, find unreleased, publish
+scripts/generate_changelog.sh   — generate release notes for one tag
 README.md
 LICENSE
 ```
 
-The working branch is `automation`. It must be set as the **default branch** (GitHub runs scheduled workflows only from the default branch).
+The working branch is `automation`. It must be set as the **default branch** (GitHub runs scheduled workflows only from the default branch). It is an **orphan branch** — contains only workflow files, not FarManager source.
+
+## Tag format
+
+Upstream tags follow the pattern `builds/NNNN` (e.g. `builds/6695`). Releases in this repository use the same tag name.
 
 ## Workflow modes
 
-### Dry-run (default)
+### Auto mode (schedule / workflow_dispatch without `start_tag`)
 
-Started **without** `start_tag`:
-- finds the latest build
-- generates its release notes
-- saves to `changelog_DRY_RUN_ci_v3.0.BBBB.NNNN.md` and prints to log
-- **does not push tags or create releases**
+- Fetches upstream `master` and all tags
+- Compares `builds/*` tags against existing GitHub Releases in this repo
+- Publishes all unreleased tags in ascending order, up to `MAX_BUILDS_PER_RUN` (default: **10**) per run
+- If there are more unreleased tags than the limit, the next scheduled run picks up where this one left off
+- Stops on first error; safe to rerun
 
-### Publish mode
+### Manual mode (`workflow_dispatch` with `start_tag`)
 
-Started **with** `start_tag`:
-- starts from the specified tag
-- iterates forward through newer builds in ascending order
-- optionally limits the number of processed builds via `limit`
-- skips builds that already have a GitHub Release
-- stops on first error; safe to rerun from the same tag
+- Starts from the specified tag, skips already-released ones
+- Respects `limit` input (overrides `MAX_BUILDS_PER_RUN` if non-zero)
+- Useful for backfilling or retrying after a failure
 
 ## Workflow triggers
 
 | Trigger | Behavior |
 |---|---|
-| `schedule` (daily 00:00 UTC) | dry-run |
-| `workflow_dispatch` without `start_tag` | dry-run |
-| `workflow_dispatch` with `start_tag` | publish |
-| `push` to `automation` | dry-run (smoke test) |
+| `schedule` (daily 00:00 UTC) | auto mode |
+| `workflow_dispatch` without `start_tag` | auto mode |
+| `workflow_dispatch` with `start_tag` | manual mode from that tag |
+| `push` to `automation` | auto mode (smoke test) |
 
-## Manual inputs
+## Manual dispatch inputs
 
 | Input | Default | Description |
 |---|---|---|
-| `start_tag` | _(empty)_ | First tag to process. Empty = dry-run. |
-| `limit` | `0` | Max builds to process. `0` = unlimited. |
+| `start_tag` | _(empty)_ | Start tag for manual mode. Empty = auto mode. |
+| `limit` | `0` | Max builds this run. `0` = use `MAX_BUILDS_PER_RUN`. |
+
+## Configuration
+
+`MAX_BUILDS_PER_RUN` is defined in `monitor.yml` under `env:`. Default is `10`. Change it there to adjust how many builds are published per scheduled run.
 
 ## Release notes format
 
 Each release body contains:
-1. Tag name as heading
+1. Tag as heading
 2. Previous build tag
 3. **Compare link**: `https://github.com/FarGroup/FarManager/compare/<prev>...<current>`
-4. Commit list with short hashes linked to upstream
+4. Per-commit list with short hash linked to upstream commit page
 
 ## Setup
 
-### 1. Automation branch
-
-The `automation` branch must be an **orphan** (no FarManager source history):
+### 1. Create the `automation` branch as an orphan
 
 ```bash
 git clone https://github.com/johnd0e/BetterFarChangelog.git
@@ -84,9 +79,9 @@ git commit -m "chore: init automation branch"
 git push origin automation
 ```
 
-Then set `automation` as default branch in **Settings → Branches**.
+Set `automation` as default branch: **Settings → Branches**.
 
-### 2. Workflow write permissions
+### 2. Enable workflow write permissions
 
 **Settings → Actions → General → Workflow permissions → Read and write permissions**
 
@@ -96,27 +91,29 @@ Then set `automation` as default branch in **Settings → Branches**.
 git clone https://github.com/johnd0e/BetterFarChangelog.git
 cd BetterFarChangelog
 git remote add upstream https://github.com/FarGroup/FarManager.git
+git fetch upstream master --force
 git fetch upstream --tags --force
 
-# Dry-run (no GH_TOKEN needed)
-./scripts/process_tags.sh
+# Auto mode (publishes unreleased tags, needs GH_TOKEN)
+GH_TOKEN=ghp_... ./scripts/process_tags.sh --auto
 
-# Publish one build
-GH_TOKEN=ghp_... ./scripts/process_tags.sh --start ci/v3.0.6695.4886 --limit 1
+# Manual: publish one specific tag
+GH_TOKEN=ghp_... ./scripts/process_tags.sh --start builds/6695 --limit 1
 ```
 
 ## Recovery after failure
 
-1. Find the failed tag in the job log (the `::error::` annotation)
+1. Find the failed tag in the job log (`::error::` annotation)
 2. Fix the root cause
 3. Rerun workflow with `start_tag` set to the failed tag
 4. Optionally set `limit=1` for a cautious first retry
 
 ## Key design decisions
 
-- Tag pattern is `ci/v*`; tags are grouped by build number (`BBBB`), latest CI run per build is used
-- Processing is always in ascending build order
-- Dry-run is the default; explicit `start_tag` is required to publish
-- Pipeline stops on first error and resumes safely from the same tag
-- No upstream commit statuses (requires upstream write access not available)
-- `automation` is an orphan branch — contains only workflow files, not FarManager source
+- Tag pattern: `builds/*`
+- Schedule runs in **auto mode** — no manual intervention needed for normal operation
+- Previous tag is found per-build via `git tag | awk`, no full list kept in memory
+- `MAX_BUILDS_PER_RUN=10` prevents runaway publishing on first run or after a long gap
+- Processing is always ascending (oldest first); pipeline stops on first error and resumes from same tag
+- No upstream commit statuses (requires upstream write access)
+- `automation` is an orphan branch — no FarManager source history

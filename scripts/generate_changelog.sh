@@ -3,24 +3,16 @@
 #   $1 = TAG           e.g. builds/6695
 #   $2 = OUTPUT_FILE
 # Env:
-#   TAGS_FILE          path to sorted builds/* tag list (written by process_tags.sh)
+#   PREV_TAG           previous builds/* tag (may be empty for first release)
 set -euo pipefail
 
 trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit $?). TAG=${TAG:-?}"' ERR
 
 TAG="$1"
 OUTPUT_FILE="$2"
+PREV_TAG="${PREV_TAG:-}"
 COMPARE_BASE="${UPSTREAM_COMPARE_BASE:-https://github.com/FarGroup/FarManager/compare}"
 COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/commit}"
-
-if [ -z "${TAGS_FILE:-}" ] || [ ! -f "$TAGS_FILE" ]; then
-    echo "::error::[generate_changelog.sh] TAGS_FILE is not set or does not exist: '${TAGS_FILE:-}'"
-    exit 1
-fi
-
-# Find previous tag by reading from file — no env var size limits, no SIGPIPE
-PREV_TAG=$(awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }' "$TAGS_FILE")
-echo "[generate_changelog.sh] $TAG — previous: ${PREV_TAG:-none}"
 
 COMMITS=""
 if [ -n "$PREV_TAG" ]; then
@@ -51,4 +43,4 @@ fi
   fi
 } > "$OUTPUT_FILE"
 
-echo "[generate_changelog.sh] Done. $(wc -l < "$OUTPUT_FILE") line(s)."
+echo "[generate_changelog.sh] $TAG: $(wc -l < "$OUTPUT_FILE") line(s), prev=${PREV_TAG:-none}."
