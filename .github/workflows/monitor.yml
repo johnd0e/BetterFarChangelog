@@ -42,13 +42,8 @@ jobs:
           git fetch upstream master --force
           git fetch upstream --tags --force
 
-          if ! git ls-remote --exit-code upstream refs/heads/master > /dev/null 2>&1; then
-            echo "::error::Upstream branch 'master' not found in $UPSTREAM_REPO."
-            exit 1
-          fi
-
           TAG_COUNT=$(git tag --list 'builds/*' | wc -l | tr -d ' ')
-          echo "builds/* tag count after fetch: $TAG_COUNT"
+          echo "builds/* tag count: $TAG_COUNT"
           if [ "$TAG_COUNT" -eq 0 ]; then
             echo "::error::No tags matching 'builds/*' found after fetching upstream."
             exit 1
@@ -56,19 +51,6 @@ jobs:
 
       - name: Make scripts executable
         run: chmod +x ./scripts/*.sh
-
-      - name: Diagnose environment
-        run: |
-          echo "--- pwd ---"
-          pwd
-          echo "--- ls scripts/ ---"
-          ls -la scripts/
-          echo "--- head of process_tags.sh ---"
-          head -3 scripts/process_tags.sh
-          echo "--- git tag count ---"
-          git tag --list 'builds/*' | wc -l
-          echo "--- last 3 builds/* tags ---"
-          git tag --list 'builds/*' --sort=version:refname | tail -3
 
       - name: Process tags
         env:
@@ -79,7 +61,7 @@ jobs:
           UPSTREAM_COMMIT_BASE: ${{ env.UPSTREAM_COMMIT_BASE }}
         run: |
           if [ -z "$START_TAG" ]; then
-            ./scripts/process_tags.sh --dry-run 2>&1
+            ./scripts/process_tags.sh --dry-run
           else
-            ./scripts/process_tags.sh --start "$START_TAG" --limit "$LIMIT" 2>&1
+            ./scripts/process_tags.sh --start "$START_TAG" --limit "$LIMIT"
           fi

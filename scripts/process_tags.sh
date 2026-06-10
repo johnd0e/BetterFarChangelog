@@ -1,10 +1,8 @@
 #!/bin/bash
-# Redirect all output to stderr so it appears in GitHub Actions log
-exec 1>&2
-set -euxo pipefail
+set -euo pipefail
 
-error()   { echo "::error::$*"; }
-warn()    { echo "::warning::$*"; }
+error()   { echo "::error::$*"; echo "ERROR: $*" >&2; }
+warn()    { echo "::warning::$*"; echo "WARNING: $*"; }
 info()    { echo "$*"; }
 section() { echo ""; echo "========================================="; echo "$*"; }
 
@@ -26,33 +24,36 @@ if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-section "Collecting upstream tags matching 'builds/*'"
+section "Collecting tags"
 
-ALL_TAGS=$(git tag --list 'builds/*' --sort=version:refname)
+# Write all tags to a temp file to avoid ARG_MAX limits when passing to subscripts
+TAGS_FILE=$(mktemp /tmp/all_tags_XXXXXX.txt)
+git tag --list 'builds/*' --sort=version:refname > "$TAGS_FILE"
 
-if [ -z "$ALL_TAGS" ]; then
+TOTAL=$(wc -l < "$TAGS_FILE" | tr -d ' ')
+if [ "$TOTAL" -eq 0 ]; then
     error "No tags matching 'builds/*' found."
+    rm -f "$TAGS_FILE"
     exit 1
 fi
-
-TOTAL=$(echo "$ALL_TAGS" | wc -l | tr -d ' ')
-info "Found $TOTAL tag(s)."
+info "Found $TOTAL tag(s). Latest: $(tail -1 "$TAGS_FILE")"
 
 if $DRY_RUN; then
-    LAST_TAG=$(echo "$ALL_TAGS" | tail -n 1)
+    LAST_TAG=$(tail -1 "$TAGS_FILE")
     WORK_TAGS="$LAST_TAG"
-    info "Dry-run mode: processing latest tag only: $LAST_TAG"
+    info "Dry-run: processing latest tag only: $LAST_TAG"
 else
     if [ -z "$START_TAG" ]; then
         error "Publish mode requires --start <tag>."
+        rm -f "$TAGS_FILE"
         exit 1
     fi
 
-    WORK_TAGS=$(echo "$ALL_TAGS" | awk -v start="$START_TAG" 'found || $0 == start { found = 1; print }')
+    WORK_TAGS=$(awk -v start="$START_TAG" 'found || $0 == start { found = 1; print }' "$TAGS_FILE")
 
     if [ -z "$WORK_TAGS" ]; then
-        error "Tag '$START_TAG' not found. Available tags (last 10):"
-        echo "$ALL_TAGS" | tail -n 10
+        error "Tag '$START_TAG' not found. Last 5 available: $(tail -5 "$TAGS_FILE" | tr '\n' ' ')"
+        rm -f "$TAGS_FILE"
         exit 1
     fi
 
@@ -76,6 +77,7 @@ else
 
     if [ -z "$WORK_TAGS" ]; then
         info "All selected tags already have releases. Nothing to do."
+        rm -f "$TAGS_FILE"
         exit 0
     fi
 
@@ -91,23 +93,22 @@ for TAG in $WORK_TAGS; do
     CHANGELOG_FILE=$(mktemp /tmp/changelog_XXXXXX.md)
 
     info "[$TAG] Generating changelog..."
-    if ! ALL_TAGS="$ALL_TAGS" ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE"; then
+    if ! TAGS_FILE="$TAGS_FILE" ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE"; then
         error "[$TAG] generate_changelog.sh failed."
-        rm -f "$CHANGELOG_FILE"
+        rm -f "$CHANGELOG_FILE" "$TAGS_FILE"
         exit 1
     fi
 
     if [ ! -s "$CHANGELOG_FILE" ]; then
         error "[$TAG] generate_changelog.sh produced an empty file."
-        rm -f "$CHANGELOG_FILE"
+        rm -f "$CHANGELOG_FILE" "$TAGS_FILE"
         exit 1
     fi
 
     if $DRY_RUN; then
         DRY_OUT="changelog_DRY_RUN_${TAG//\//_}.md"
         cp "$CHANGELOG_FILE" "$DRY_OUT"
-        info "[$TAG] Dry-run output saved to $DRY_OUT"
-        section "[$TAG] Dry-run preview"
+        info "[$TAG] Dry-run preview:"
         cat "$CHANGELOG_FILE"
     else
         info "[$TAG] Pushing tag to origin..."
@@ -119,7 +120,7 @@ for TAG in $WORK_TAGS; do
                 --title "FarManager $TAG" \
                 --notes-file "$CHANGELOG_FILE" 2>&1); then
             error "[$TAG] Failed to create release: $RELEASE_OUTPUT"
-            rm -f "$CHANGELOG_FILE"
+            rm -f "$CHANGELOG_FILE" "$TAGS_FILE"
             info "Retry: rerun workflow with start_tag=$TAG"
             exit 1
         fi
@@ -129,6 +130,8 @@ for TAG in $WORK_TAGS; do
 
     rm -f "$CHANGELOG_FILE"
 done
+
+rm -f "$TAGS_FILE"
 
 section "Done"
 if $DRY_RUN; then
