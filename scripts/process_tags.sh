@@ -3,7 +3,6 @@
 #
 # Modes:
 #   --auto              Find all unreleased tags, publish up to MAX_BUILDS_PER_RUN (default 10).
-#                       Used by schedule and workflow_dispatch without start_tag.
 #   --start <tag>       Publish starting from <tag>. --limit N overrides MAX_BUILDS_PER_RUN.
 set -euo pipefail
 
@@ -36,7 +35,6 @@ if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-# Effective limit: explicit --limit overrides MAX_BUILDS_PER_RUN; 0 means use default.
 if [ "$LIMIT" -eq 0 ]; then
     EFFECTIVE_LIMIT="$MAX_BUILDS_PER_RUN"
 else
@@ -49,13 +47,19 @@ RELEASED_COUNT=$(echo "$RELEASED_TAGS" | grep -c '.' || true)
 info "Already released: $RELEASED_COUNT"
 
 section "Collecting upstream tags"
-# Process tags in ascending order, one at a time — no need to load all into memory.
-# We read from git tag output line by line.
+
+# Read ALL upstream tags into a variable first to avoid SIGPIPE when downstream
+# commands (awk, head) close the pipe before git tag finishes writing.
+ALL_TAGS=$(git tag --list 'builds/*' --sort=version:refname)
+
+if [ -z "$ALL_TAGS" ]; then
+    error "No tags matching 'builds/*' found."
+    exit 1
+fi
+
 if [ "$MODE" = "auto" ]; then
-    # Find all unreleased tags in ascending order, cap at EFFECTIVE_LIMIT
-    WORK_TAGS=$(git tag --list 'builds/*' --sort=version:refname \
-        | grep -vxF -f <(echo "$RELEASED_TAGS") \
-        | head -n "$EFFECTIVE_LIMIT")
+    UNRELEASED=$(echo "$ALL_TAGS" | grep -vxF -f <(echo "$RELEASED_TAGS") || true)
+    WORK_TAGS=$(echo "$UNRELEASED" | head -n "$EFFECTIVE_LIMIT")
 
     if [ -z "$WORK_TAGS" ]; then
         info "No new tags to release."
@@ -64,18 +68,15 @@ if [ "$MODE" = "auto" ]; then
     COUNT=$(echo "$WORK_TAGS" | wc -l | tr -d ' ')
     info "Found $COUNT unreleased tag(s) to process (limit: $EFFECTIVE_LIMIT)."
 else
-    # --start mode: start from START_TAG, apply limit
-    ALL_FROM_START=$(git tag --list 'builds/*' --sort=version:refname \
-        | awk -v start="$START_TAG" 'found || $0 == start { found = 1; print }')
+    ALL_FROM_START=$(echo "$ALL_TAGS" | awk -v start="$START_TAG" 'found || $0 == start { found = 1; print }')
 
     if [ -z "$ALL_FROM_START" ]; then
         error "Tag '$START_TAG' not found among builds/* tags."
         exit 1
     fi
 
-    WORK_TAGS=$(echo "$ALL_FROM_START" \
-        | grep -vxF -f <(echo "$RELEASED_TAGS") \
-        | head -n "$EFFECTIVE_LIMIT")
+    UNRELEASED=$(echo "$ALL_FROM_START" | grep -vxF -f <(echo "$RELEASED_TAGS") || true)
+    WORK_TAGS=$(echo "$UNRELEASED" | head -n "$EFFECTIVE_LIMIT")
 
     if [ -z "$WORK_TAGS" ]; then
         info "All tags from '$START_TAG' onwards are already released."
@@ -90,9 +91,8 @@ PROCESSED=0
 for TAG in $WORK_TAGS; do
     section "[$TAG]"
 
-    # Find previous tag directly — no full list needed
-    PREV_TAG=$(git tag --list 'builds/*' --sort=version:refname \
-        | awk -v tag="$TAG" 'prev && $0 == tag { print prev; exit } { prev = $0 }')
+    # Find previous tag: read all tags into variable first, then awk — no SIGPIPE
+    PREV_TAG=$(echo "$ALL_TAGS" | awk -v tag="$TAG" 'prev && $0 == tag { print prev; exit } { prev = $0 }')
 
     CHANGELOG_FILE=$(mktemp /tmp/changelog_XXXXXX.md)
 
