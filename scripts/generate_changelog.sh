@@ -1,35 +1,36 @@
 #!/bin/bash
-# Generates Markdown release notes for a given tag.
-# Called by process_tags.sh with:
-#   $1 = TAG          e.g. "builds/6676"
-#   $2 = OUTPUT_FILE  path where Markdown must be written
-#
-# Contract:
-#   - Write valid non-empty Markdown to OUTPUT_FILE.
-#   - Exit 0 on success, non-zero on any error (will stop the pipeline).
 set -euo pipefail
 
 TAG="$1"
 OUTPUT_FILE="$2"
+COMPARE_BASE="${UPSTREAM_COMPARE_BASE:-https://github.com/FarGroup/FarManager/compare}"
+COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/commit}"
 
-# Find the previous tag of the same format (for the commit range).
-# 'git tag --sort=version:refname' lists in ascending order; we reverse it,
-# find our tag and take the next line (which is the predecessor).
+# Find the immediately preceding tag
 PREV_TAG=$(git tag --list 'builds/*' --sort=version:refname \
   | tac \
-  | awk -v tag="$TAG" 'found{print; exit} $0==tag{found=1}')
+  | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
 
 {
+  echo "# $TAG"
+  echo ""
+
   if [ -n "$PREV_TAG" ]; then
-    echo "Changes since \`$PREV_TAG\`:"
+    echo "Previous build: \`$PREV_TAG\`"
+    echo ""
+    echo "**[Compare $PREV_TAG...$TAG]($COMPARE_BASE/$PREV_TAG...$TAG)**"
+    echo ""
+    echo "Commits:"
     echo ""
     git log "${PREV_TAG}..${TAG}" --no-merges \
-      --pretty=format:"* %s ([%h](https://github.com/FarGroup/FarManager/commit/%H))"
+      --pretty=format:"* %s ([%h]($COMMIT_BASE/%H))"
     echo ""
   else
     echo "_First tracked release._"
     echo ""
+    echo "No previous build available — a compare link cannot be generated yet."
+    echo ""
   fi
 } > "$OUTPUT_FILE"
 
-echo "[generate_changelog.sh] $TAG: wrote $(wc -l < "$OUTPUT_FILE") lines (prev: ${PREV_TAG:-none})"
+echo "[generate_changelog.sh] $TAG: wrote $(wc -l < "$OUTPUT_FILE") line(s); previous tag: ${PREV_TAG:-none}"
