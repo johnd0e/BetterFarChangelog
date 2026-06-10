@@ -22,7 +22,6 @@ env:
   UPSTREAM_REPO: 'https://github.com/FarGroup/FarManager.git'
   UPSTREAM_COMPARE_BASE: 'https://github.com/FarGroup/FarManager/compare'
   UPSTREAM_COMMIT_BASE: 'https://github.com/FarGroup/FarManager/commit'
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   process-releases:
@@ -33,6 +32,8 @@ jobs:
     steps:
       - name: Checkout automation branch
         uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           fetch-depth: 0
 

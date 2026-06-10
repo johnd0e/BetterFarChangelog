@@ -11,11 +11,12 @@ COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/comm
 
 echo "[generate_changelog.sh] TAG=$TAG"
 
-# Find the immediately preceding tag using git's own version sort (no external sort -V needed).
-# --sort=-version:refname gives descending order; we find our tag and print the next line.
+# Find the immediately preceding tag.
+# We read ALL tags into a variable first to avoid SIGPIPE when awk exits early
+# from a still-running git process (exit code 141 under set -e).
 echo "[generate_changelog.sh] Looking for previous tag..."
-PREV_TAG=$(git tag --list 'builds/*' --sort=-version:refname \
-  | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
+ALL_TAGS=$(git tag --list 'builds/*' --sort=-version:refname)
+PREV_TAG=$(echo "$ALL_TAGS" | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
 echo "[generate_changelog.sh] Previous tag: ${PREV_TAG:-none}"
 
 # COMMITS must be initialised before the conditional block (set -u requirement)
