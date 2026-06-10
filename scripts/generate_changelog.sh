@@ -1,10 +1,5 @@
 #!/bin/bash
-# Args:
-#   $1 = TAG           e.g. builds/6695
-#   $2 = OUTPUT_FILE
-# Env:
-#   ALL_TAGS           newline-separated sorted list of builds/* tags
-set -euo pipefail
+set -euxo pipefail
 
 trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit $?). TAG=${TAG:-?}"' ERR
 
@@ -20,7 +15,6 @@ if [ -z "${ALL_TAGS:-}" ]; then
     exit 1
 fi
 
-# Find previous tag. ALL_TAGS is in an env var — no pipe to git, no SIGPIPE.
 PREV_TAG=$(echo "$ALL_TAGS" | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
 echo "[generate_changelog.sh] Previous tag: ${PREV_TAG:-none}"
 

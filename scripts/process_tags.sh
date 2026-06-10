@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -euxo pipefail
 
 error()   { echo "::error::$*"; echo "ERROR: $*" >&2; }
 warn()    { echo "::warning::$*"; echo "WARNING: $*"; }
@@ -89,7 +89,6 @@ for TAG in $WORK_TAGS; do
     CHANGELOG_FILE=$(mktemp /tmp/changelog_XXXXXX.md)
 
     info "[$TAG] Generating changelog..."
-    # Pass ALL_TAGS via environment variable to preserve newlines
     if ! ALL_TAGS="$ALL_TAGS" ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE"; then
         error "[$TAG] generate_changelog.sh failed."
         rm -f "$CHANGELOG_FILE"
