@@ -1,36 +1,34 @@
 #!/bin/bash
+# Args:
+#   $1 = TAG           representative tag for this build, e.g. ci/v3.0.6695.4886
+#   $2 = OUTPUT_FILE   path where Markdown must be written
+#   $3 = ALL_REP_TAGS  newline-separated sorted list of representative tags (from process_tags.sh)
 set -euo pipefail
 
-# Trap any unexpected error and print the line number
-trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit code $?). TAG=${TAG:-?}"' ERR
+trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit $?). TAG=${TAG:-?}"' ERR
 
 TAG="$1"
 OUTPUT_FILE="$2"
+ALL_REP_TAGS="$3"
 COMPARE_BASE="${UPSTREAM_COMPARE_BASE:-https://github.com/FarGroup/FarManager/compare}"
 COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/commit}"
 
 echo "[generate_changelog.sh] TAG=$TAG"
 
-# Find the immediately preceding tag.
-# We read ALL tags into a variable first to avoid SIGPIPE when awk exits early
-# from a still-running git process (exit code 141 under set -e).
-echo "[generate_changelog.sh] Looking for previous tag..."
-ALL_TAGS=$(git tag --list 'builds/*' --sort=-version:refname)
-PREV_TAG=$(echo "$ALL_TAGS" | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
+# Find the immediately preceding representative tag.
+# ALL_REP_TAGS is already sorted ascending and passed in as a variable — no pipe, no SIGPIPE.
+PREV_TAG=$(echo "$ALL_REP_TAGS" | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
 echo "[generate_changelog.sh] Previous tag: ${PREV_TAG:-none}"
 
-# COMMITS must be initialised before the conditional block (set -u requirement)
 COMMITS=""
-
 if [ -n "$PREV_TAG" ]; then
-    echo "[generate_changelog.sh] Running git log ${PREV_TAG}..${TAG}..."
+    echo "[generate_changelog.sh] git log ${PREV_TAG}..${TAG}"
     COMMITS=$(git log "${PREV_TAG}..${TAG}" --no-merges \
       --pretty=format:"* %s ([%h]($COMMIT_BASE/%H))")
-    COUNT=$(echo "$COMMITS" | grep -c '^\*' || true)
-    echo "[generate_changelog.sh] Commits found: $COUNT"
+    echo "[generate_changelog.sh] Commits: $(echo "$COMMITS" | grep -c '^\*' || true)"
 fi
 
-echo "[generate_changelog.sh] Writing $OUTPUT_FILE..."
+echo "[generate_changelog.sh] Writing output..."
 {
   echo "# $TAG"
   echo ""
@@ -50,9 +48,9 @@ echo "[generate_changelog.sh] Writing $OUTPUT_FILE..."
       echo ""
     fi
   else
-    echo "_First tracked release \u2014 no previous build available._"
+    echo "_First tracked release — no previous build available._"
     echo ""
   fi
 } > "$OUTPUT_FILE"
 
-echo "[generate_changelog.sh] Done. Wrote $(wc -l < "$OUTPUT_FILE") line(s)."
+echo "[generate_changelog.sh] Done. $(wc -l < "$OUTPUT_FILE") line(s) written."

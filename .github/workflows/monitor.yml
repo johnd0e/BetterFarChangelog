@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       start_tag:
-        description: 'Start from this tag (example: builds/3.0.6695). Empty = dry-run for the latest tag only.'
+        description: 'Start from this tag (example: ci/v3.0.6695.4886). Empty = dry-run for the latest build only.'
         required: false
         type: string
       limit:
-        description: 'Maximum number of tags to process after start_tag. 0 = no limit.'
+        description: 'Maximum number of builds to process. 0 = no limit.'
         required: false
         default: '0'
         type: string
@@ -22,6 +22,8 @@ env:
   UPSTREAM_REPO: 'https://github.com/FarGroup/FarManager.git'
   UPSTREAM_COMPARE_BASE: 'https://github.com/FarGroup/FarManager/compare'
   UPSTREAM_COMMIT_BASE: 'https://github.com/FarGroup/FarManager/commit'
+  TAG_PATTERN: 'ci/v*'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   process-releases:
@@ -32,8 +34,6 @@ jobs:
     steps:
       - name: Checkout automation branch
         uses: actions/checkout@v4
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           fetch-depth: 0
 
@@ -52,6 +52,7 @@ jobs:
           LIMIT: ${{ inputs.limit || '0' }}
           UPSTREAM_COMPARE_BASE: ${{ env.UPSTREAM_COMPARE_BASE }}
           UPSTREAM_COMMIT_BASE: ${{ env.UPSTREAM_COMMIT_BASE }}
+          TAG_PATTERN: ${{ env.TAG_PATTERN }}
         run: |
           if [ -z "$START_TAG" ]; then
             ./scripts/process_tags.sh --dry-run
