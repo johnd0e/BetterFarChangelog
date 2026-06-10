@@ -1,23 +1,22 @@
 #!/bin/bash
 # Args:
-#   $1 = TAG           representative tag for this build, e.g. ci/v3.0.6695.4886
-#   $2 = OUTPUT_FILE   path where Markdown must be written
-#   $3 = ALL_REP_TAGS  newline-separated sorted list of representative tags (from process_tags.sh)
+#   $1 = TAG           e.g. builds/6695
+#   $2 = OUTPUT_FILE
+#   $3 = ALL_TAGS      newline-separated sorted list of builds/* tags (passed from process_tags.sh)
 set -euo pipefail
 
 trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit $?). TAG=${TAG:-?}"' ERR
 
 TAG="$1"
 OUTPUT_FILE="$2"
-ALL_REP_TAGS="$3"
+ALL_TAGS="$3"
 COMPARE_BASE="${UPSTREAM_COMPARE_BASE:-https://github.com/FarGroup/FarManager/compare}"
 COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/commit}"
 
 echo "[generate_changelog.sh] TAG=$TAG"
 
-# Find the immediately preceding representative tag.
-# ALL_REP_TAGS is already sorted ascending and passed in as a variable — no pipe, no SIGPIPE.
-PREV_TAG=$(echo "$ALL_REP_TAGS" | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
+# Find previous tag. ALL_TAGS is already in a variable — no pipe, no SIGPIPE.
+PREV_TAG=$(echo "$ALL_TAGS" | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
 echo "[generate_changelog.sh] Previous tag: ${PREV_TAG:-none}"
 
 COMMITS=""
@@ -32,7 +31,6 @@ echo "[generate_changelog.sh] Writing output..."
 {
   echo "# $TAG"
   echo ""
-
   if [ -n "$PREV_TAG" ]; then
     echo "Previous build: \`$PREV_TAG\`"
     echo ""
