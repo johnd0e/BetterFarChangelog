@@ -26,7 +26,6 @@ fi
 
 section "Collecting upstream tags matching 'builds/*'"
 
-# Read all tags into a variable (no pipe to avoid SIGPIPE under set -e)
 ALL_TAGS=$(git tag --list 'builds/*' --sort=version:refname)
 
 if [ -z "$ALL_TAGS" ]; then
@@ -90,7 +89,8 @@ for TAG in $WORK_TAGS; do
     CHANGELOG_FILE=$(mktemp /tmp/changelog_XXXXXX.md)
 
     info "[$TAG] Generating changelog..."
-    if ! ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE" "$ALL_TAGS"; then
+    # Pass ALL_TAGS via environment variable to preserve newlines
+    if ! ALL_TAGS="$ALL_TAGS" ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE"; then
         error "[$TAG] generate_changelog.sh failed."
         rm -f "$CHANGELOG_FILE"
         exit 1

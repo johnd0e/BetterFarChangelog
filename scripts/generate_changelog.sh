@@ -2,20 +2,25 @@
 # Args:
 #   $1 = TAG           e.g. builds/6695
 #   $2 = OUTPUT_FILE
-#   $3 = ALL_TAGS      newline-separated sorted list of builds/* tags (passed from process_tags.sh)
+# Env:
+#   ALL_TAGS           newline-separated sorted list of builds/* tags
 set -euo pipefail
 
 trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit $?). TAG=${TAG:-?}"' ERR
 
 TAG="$1"
 OUTPUT_FILE="$2"
-ALL_TAGS="$3"
 COMPARE_BASE="${UPSTREAM_COMPARE_BASE:-https://github.com/FarGroup/FarManager/compare}"
 COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/commit}"
 
 echo "[generate_changelog.sh] TAG=$TAG"
 
-# Find previous tag. ALL_TAGS is already in a variable — no pipe, no SIGPIPE.
+if [ -z "${ALL_TAGS:-}" ]; then
+    echo "::error::[generate_changelog.sh] ALL_TAGS env var is empty or not set."
+    exit 1
+fi
+
+# Find previous tag. ALL_TAGS is in an env var — no pipe to git, no SIGPIPE.
 PREV_TAG=$(echo "$ALL_TAGS" | awk -v tag="$TAG" 'found { print; exit } $0 == tag { found = 1 }')
 echo "[generate_changelog.sh] Previous tag: ${PREV_TAG:-none}"
 
