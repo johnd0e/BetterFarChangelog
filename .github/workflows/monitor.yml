@@ -13,23 +13,24 @@ on:
 
 env:
   UPSTREAM_REPO: "https://github.com/FarGroup/FarManager.git"
-  # Used for the Commit Statuses API: POST /repos/{owner}/{repo}/statuses/{sha}
-  # We post statuses TO upstream commits, so these must point at the upstream repo.
-  UPSTREAM_OWNER: "FarGroup"
-  UPSTREAM_REPO_NAME: "FarManager"
 
 jobs:
   process-releases:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # Push tags and create GitHub Releases in our fork
-      statuses: write   # Post CI commit statuses (requires token with repo scope for external repos)
+      contents: write   # Required to push tags and create GitHub Releases
 
     steps:
       - name: Checkout automation branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0   # Full history required for git log between tags
+
+      - name: Fetch upstream (tags + history)
+        run: |
+          git remote add upstream "$UPSTREAM_REPO" 2>/dev/null || true
+          # --tags populates local refs/tags/* so git log can use them directly
+          git fetch upstream --tags --force
 
       - name: Make scripts executable
         run: chmod +x ./scripts/*.sh
@@ -38,6 +39,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPSTREAM_REPO: ${{ env.UPSTREAM_REPO }}
-          UPSTREAM_OWNER: ${{ env.UPSTREAM_OWNER }}
-          UPSTREAM_REPO_NAME: ${{ env.UPSTREAM_REPO_NAME }}
         run: ./scripts/process_tags.sh
