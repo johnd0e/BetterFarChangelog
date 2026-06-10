@@ -1,4 +1,5 @@
 #!/bin/bash
+exec 1>&2
 set -euxo pipefail
 
 trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (exit $?). TAG=${TAG:-?}"' ERR
@@ -26,7 +27,8 @@ if [ -n "$PREV_TAG" ]; then
     echo "[generate_changelog.sh] Commits: $(echo "$COMMITS" | grep -c '^\*' || true)"
 fi
 
-echo "[generate_changelog.sh] Writing output..."
+# Write to a temp file first, then move — avoids partial writes
+TMP_OUT=$(mktemp)
 {
   echo "# $TAG"
   echo ""
@@ -48,6 +50,7 @@ echo "[generate_changelog.sh] Writing output..."
     echo "_First tracked release — no previous build available._"
     echo ""
   fi
-} > "$OUTPUT_FILE"
+} > "$TMP_OUT"
+mv "$TMP_OUT" "$OUTPUT_FILE"
 
 echo "[generate_changelog.sh] Done. $(wc -l < "$OUTPUT_FILE") line(s) written."

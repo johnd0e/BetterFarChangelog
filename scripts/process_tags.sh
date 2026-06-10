@@ -1,10 +1,12 @@
 #!/bin/bash
+# Redirect all output to stderr so it appears in GitHub Actions log
+exec 1>&2
 set -euxo pipefail
 
-error()   { echo "::error::$*"; echo "ERROR: $*" >&2; }
-warn()    { echo "::warning::$*"; echo "WARNING: $*"; }
+error()   { echo "::error::$*"; }
+warn()    { echo "::warning::$*"; }
 info()    { echo "$*"; }
-section() { info ""; info "========================================="; info "$*"; }
+section() { echo ""; echo "========================================="; echo "$*"; }
 
 DRY_RUN=true
 START_TAG=""
@@ -29,7 +31,7 @@ section "Collecting upstream tags matching 'builds/*'"
 ALL_TAGS=$(git tag --list 'builds/*' --sort=version:refname)
 
 if [ -z "$ALL_TAGS" ]; then
-    error "No tags matching 'builds/*' found. Make sure upstream was fetched correctly."
+    error "No tags matching 'builds/*' found."
     exit 1
 fi
 
@@ -50,7 +52,7 @@ else
 
     if [ -z "$WORK_TAGS" ]; then
         error "Tag '$START_TAG' not found. Available tags (last 10):"
-        echo "$ALL_TAGS" | tail -n 10 >&2
+        echo "$ALL_TAGS" | tail -n 10
         exit 1
     fi
 
