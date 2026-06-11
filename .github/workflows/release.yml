@@ -1,0 +1,68 @@
+name: Release Builds
+
+on:
+  workflow_run:
+    workflows: ["Sync upstream master"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      start_tag:
+        description: 'Publish starting from this tag (example: builds/6695). Empty = auto.'
+        required: false
+        type: string
+      limit:
+        description: 'Max builds to process (0 = use MAX_BUILDS_PER_RUN default).'
+        required: false
+        default: '0'
+        type: string
+  push:
+    branches:
+      - automation
+
+env:
+  UPSTREAM_COMPARE_BASE: 'https://github.com/FarGroup/FarManager/compare'
+  UPSTREAM_COMMIT_BASE: 'https://github.com/FarGroup/FarManager/commit'
+  MAX_BUILDS_PER_RUN: '10'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release:
+    # On workflow_run: only run if sync succeeded
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout automation (scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: automation
+          fetch-depth: 1
+
+      - name: Checkout master (tags + commits) into ./upstream
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          path: upstream
+
+      - name: Make scripts executable
+        run: chmod +x ./scripts/*.sh
+
+      - name: Process tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          START_TAG: ${{ inputs.start_tag || '' }}
+          LIMIT: ${{ inputs.limit || '0' }}
+          MAX_BUILDS_PER_RUN: ${{ env.MAX_BUILDS_PER_RUN }}
+          UPSTREAM_COMPARE_BASE: ${{ env.UPSTREAM_COMPARE_BASE }}
+          UPSTREAM_COMMIT_BASE: ${{ env.UPSTREAM_COMMIT_BASE }}
+          UPSTREAM_DIR: './upstream'
+        run: |
+          if [ -n "$START_TAG" ]; then
+            ./scripts/process_tags.sh --start "$START_TAG" --limit "$LIMIT"
+          else
+            ./scripts/process_tags.sh --auto
+          fi

@@ -4,6 +4,10 @@
 # Modes:
 #   --auto              Find all unreleased tags, publish up to MAX_BUILDS_PER_RUN (default 10).
 #   --start <tag>       Publish starting from <tag>. --limit N overrides MAX_BUILDS_PER_RUN.
+#
+# Env:
+#   UPSTREAM_DIR        path to checkout of master (default: ./upstream)
+#   GH_REPO             target repo for gh CLI (default: from gh context)
 set -euo pipefail
 
 error()   { echo "::error::$*"; echo "ERROR: $*" >&2; }
@@ -11,6 +15,8 @@ warn()    { echo "::warning::$*"; echo "WARNING: $*"; }
 info()    { echo "$*"; }
 section() { echo ""; echo "========================================="; echo "$*"; }
 
+UPSTREAM_DIR="${UPSTREAM_DIR:-./upstream}"
+GH_REPO="${GH_REPO:-}"
 MODE=""
 START_TAG=""
 LIMIT=0
@@ -41,28 +47,25 @@ else
     EFFECTIVE_LIMIT="$LIMIT"
 fi
 
+# Resolve gh --repo flag
+GH_REPO_FLAG=""
+if [ -n "$GH_REPO" ]; then
+    GH_REPO_FLAG="--repo $GH_REPO"
+fi
+
 section "Collecting released tags"
-RELEASED_TAGS=$(gh release list --limit 10000 --json tagName --jq '.[].tagName' 2>/dev/null || true)
+RELEASED_TAGS=$(gh release list $GH_REPO_FLAG --limit 10000 --json tagName --jq '.[].tagName' 2>/dev/null || true)
 RELEASED_COUNT=$(echo "$RELEASED_TAGS" | grep -c '.' || true)
 info "Already released: $RELEASED_COUNT"
 
 section "Collecting upstream tags"
-ALL_TAGS=$(git tag --list 'builds/*' --sort=version:refname)
+# All git operations use UPSTREAM_DIR where master is checked out
+ALL_TAGS=$(git -C "$UPSTREAM_DIR" tag --list 'builds/*' --sort=version:refname)
 
 if [ -z "$ALL_TAGS" ]; then
-    error "No tags matching 'builds/*' found."
+    error "No tags matching 'builds/*' found in $UPSTREAM_DIR."
     exit 1
 fi
-
-# Filter unreleased: awk lookup against RELEASED_TAGS, fully in-memory, no pipes to head
-filter_unreleased() {
-    local tags="$1"
-    # Build a lookup of released tags, then print only those not in it
-    echo "$tags" | awk -v released="$RELEASED_TAGS" '
-        BEGIN { while ((getline line < "/dev/stdin") > 0) released_set[line]=1 }
-        !released_set[$0]
-    ' || true
-}
 
 if [ "$MODE" = "auto" ]; then
     UNRELEASED=$(echo "$ALL_TAGS" | awk -v released="$RELEASED_TAGS" '
@@ -75,7 +78,6 @@ if [ "$MODE" = "auto" ]; then
         exit 0
     fi
 
-    # Apply limit in-memory
     WORK_TAGS=$(echo "$UNRELEASED" | awk -v lim="$EFFECTIVE_LIMIT" 'NR<=lim')
     COUNT=$(echo "$WORK_TAGS" | wc -l | tr -d ' ')
     info "Found $COUNT unreleased tag(s) to process (limit: $EFFECTIVE_LIMIT)."
@@ -112,8 +114,16 @@ for TAG in $WORK_TAGS; do
     CHANGELOG_FILE=$(mktemp /tmp/changelog_XXXXXX.md)
 
     info "[$TAG] Generating changelog (prev: ${PREV_TAG:-none})..."
-    if ! PREV_TAG="$PREV_TAG" ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE"; then
-        error "[$TAG] generate_changelog.sh failed."
+    GENERATE_EXIT=0
+    UPSTREAM_DIR="$UPSTREAM_DIR" PREV_TAG="$PREV_TAG" \
+        ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE" || GENERATE_EXIT=$?
+
+    if [ "$GENERATE_EXIT" -eq 2 ]; then
+        error "[$TAG] Changelog generation not yet implemented. Skipping."
+        rm -f "$CHANGELOG_FILE"
+        exit 1
+    elif [ "$GENERATE_EXIT" -ne 0 ]; then
+        error "[$TAG] generate_changelog.sh failed (exit $GENERATE_EXIT)."
         rm -f "$CHANGELOG_FILE"
         exit 1
     fi
@@ -125,11 +135,12 @@ for TAG in $WORK_TAGS; do
     fi
 
     info "[$TAG] Pushing tag to origin..."
-    git push origin "refs/tags/$TAG:refs/tags/$TAG" || \
-        warn "[$TAG] Tag push failed or already exists in origin."
+    git -C "$UPSTREAM_DIR" push origin "refs/tags/$TAG:refs/tags/$TAG" || \
+        warn "[$TAG] Tag push failed or already exists."
 
     info "[$TAG] Creating GitHub release..."
     if ! RELEASE_OUTPUT=$(gh release create "$TAG" \
+            $GH_REPO_FLAG \
             --title "FarManager $TAG" \
             --notes-file "$CHANGELOG_FILE" 2>&1); then
         error "[$TAG] Failed to create release: $RELEASE_OUTPUT"

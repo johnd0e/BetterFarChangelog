@@ -1,0 +1,41 @@
+name: Sync upstream master
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Sync from upstream
+        run: |
+          git remote add upstream https://github.com/FarGroup/FarManager.git
+          git fetch upstream master --force
+          git fetch upstream --tags --force
+
+          if ! git ls-remote --exit-code upstream refs/heads/master > /dev/null 2>&1; then
+            echo "::error::Upstream branch 'master' not found."
+            exit 1
+          fi
+
+          TAG_COUNT=$(git tag --list 'builds/*' | wc -l | tr -d ' ')
+          echo "builds/* tag count: $TAG_COUNT"
+          if [ "$TAG_COUNT" -eq 0 ]; then
+            echo "::error::No tags matching 'builds/*' found after fetch."
+            exit 1
+          fi
+
+          git reset --hard upstream/master
+          git push origin master --force
+          git push origin --tags --force
