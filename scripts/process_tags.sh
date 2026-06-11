@@ -6,8 +6,7 @@
 #   --start <tag>       Publish starting from <tag>. --limit N overrides MAX_BUILDS_PER_RUN.
 #
 # Env:
-#   UPSTREAM_DIR        path to checkout of master (default: ./upstream)
-#   GH_REPO             target repo for gh CLI (default: from gh context)
+#   GH_REPO             target repo for gh CLI (optional, defaults to current repo context)
 set -euo pipefail
 
 error()   { echo "::error::$*"; echo "ERROR: $*" >&2; }
@@ -15,7 +14,6 @@ warn()    { echo "::warning::$*"; echo "WARNING: $*"; }
 info()    { echo "$*"; }
 section() { echo ""; echo "========================================="; echo "$*"; }
 
-UPSTREAM_DIR="${UPSTREAM_DIR:-./upstream}"
 GH_REPO="${GH_REPO:-}"
 MODE=""
 START_TAG=""
@@ -47,7 +45,6 @@ else
     EFFECTIVE_LIMIT="$LIMIT"
 fi
 
-# Resolve gh --repo flag
 GH_REPO_FLAG=""
 if [ -n "$GH_REPO" ]; then
     GH_REPO_FLAG="--repo $GH_REPO"
@@ -59,11 +56,10 @@ RELEASED_COUNT=$(echo "$RELEASED_TAGS" | grep -c '.' || true)
 info "Already released: $RELEASED_COUNT"
 
 section "Collecting upstream tags"
-# All git operations use UPSTREAM_DIR where master is checked out
-ALL_TAGS=$(git -C "$UPSTREAM_DIR" tag --list 'builds/*' --sort=version:refname)
+ALL_TAGS=$(git tag --list 'builds/*' --sort=version:refname)
 
 if [ -z "$ALL_TAGS" ]; then
-    error "No tags matching 'builds/*' found in $UPSTREAM_DIR."
+    error "No tags matching 'builds/*' found."
     exit 1
 fi
 
@@ -115,7 +111,7 @@ for TAG in $WORK_TAGS; do
 
     info "[$TAG] Generating changelog (prev: ${PREV_TAG:-none})..."
     GENERATE_EXIT=0
-    UPSTREAM_DIR="$UPSTREAM_DIR" PREV_TAG="$PREV_TAG" \
+    PREV_TAG="$PREV_TAG" \
         ./scripts/generate_changelog.sh "$TAG" "$CHANGELOG_FILE" || GENERATE_EXIT=$?
 
     if [ "$GENERATE_EXIT" -eq 2 ]; then
@@ -135,7 +131,7 @@ for TAG in $WORK_TAGS; do
     fi
 
     info "[$TAG] Pushing tag to origin..."
-    git -C "$UPSTREAM_DIR" push origin "refs/tags/$TAG:refs/tags/$TAG" || \
+    git push origin "refs/tags/$TAG:refs/tags/$TAG" || \
         warn "[$TAG] Tag push failed or already exists."
 
     info "[$TAG] Creating GitHub release..."

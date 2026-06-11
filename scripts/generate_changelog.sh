@@ -4,7 +4,6 @@
 #   $2 = OUTPUT_FILE
 # Env:
 #   PREV_TAG           previous builds/* tag (may be empty)
-#   UPSTREAM_DIR       path to master checkout (default: ./upstream)
 #
 # Exit codes:
 #   0  success
@@ -17,13 +16,12 @@ trap 'echo "::error::[generate_changelog.sh] Unexpected error on line $LINENO (e
 TAG="$1"
 OUTPUT_FILE="$2"
 PREV_TAG="${PREV_TAG:-}"
-UPSTREAM_DIR="${UPSTREAM_DIR:-./upstream}"
 COMPARE_BASE="${UPSTREAM_COMPARE_BASE:-https://github.com/FarGroup/FarManager/compare}"
 COMMIT_BASE="${UPSTREAM_COMMIT_BASE:-https://github.com/FarGroup/FarManager/commit}"
 
 COMMITS=""
 if [ -n "$PREV_TAG" ]; then
-    COMMITS=$(git -C "$UPSTREAM_DIR" log "${PREV_TAG}..${TAG}" --no-merges \
+    COMMITS=$(git log "${PREV_TAG}..${TAG}" --no-merges \
       --pretty=format:"* %s ([%h]($COMMIT_BASE/%H))")
 fi
 
@@ -45,7 +43,7 @@ fi
       echo ""
     fi
   else
-    echo "_First tracked release \u2014 no previous build available._"
+    echo "_First tracked release — no previous build available._"
     echo ""
   fi
 } > "$OUTPUT_FILE"

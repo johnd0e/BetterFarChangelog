@@ -26,17 +26,13 @@ LICENSE
 
 - Triggers: daily schedule (00:00 UTC), `workflow_dispatch`.
 - Checks out `master`, fetches `FarGroup/FarManager` master and all tags, resets and force-pushes to `origin/master`.
-- No release logic here.
 
 ### 2. `release.yml` — Publish releases
 
 - Triggers: after `sync.yml` completes successfully, `workflow_dispatch`, `push` to `automation`.
-- Does **not** add any external git remote. Works only with `johnd0e/BetterFarChangelog`.
-- Checks out `automation` branch (scripts) into workspace root.
-- Checks out `master` branch (tags + commits) into `./upstream`.
-- Finds all `builds/*` tags that have no corresponding GitHub Release.
-- Publishes up to `MAX_BUILDS_PER_RUN` (default: 10) releases per run.
-- The next scheduled run picks up where this one left off.
+- Checks out `automation` branch, then fetches `origin/master` and all tags into the same working tree.
+- Finds all `builds/*` tags without a GitHub Release and publishes up to `MAX_BUILDS_PER_RUN` (default: 10) per run.
+- Does **not** add any external git remote.
 
 ## Configuration
 
@@ -78,8 +74,7 @@ Each release body contains:
 
 ### 3. Initial sync
 
-If `master` branch does not exist yet, run `sync.yml` manually first:
-
+If `master` does not exist yet, run `sync.yml` manually first:
 **Actions → Sync upstream master → Run workflow**
 
 Then run `release.yml` manually with an appropriate `start_tag`.
@@ -96,14 +91,10 @@ Then run `release.yml` manually with an appropriate `start_tag`.
 ```bash
 git clone https://github.com/johnd0e/BetterFarChangelog.git
 cd BetterFarChangelog
-
-# Simulate what release.yml does:
-mkdir upstream
-git clone https://github.com/johnd0e/BetterFarChangelog.git upstream
-cd upstream && git checkout master && cd ..
+git fetch origin master --force
+git fetch origin --tags --force
 
 GH_TOKEN=ghp_... GH_REPO=johnd0e/BetterFarChangelog \
-  UPSTREAM_DIR=./upstream \
   ./scripts/process_tags.sh --auto
 ```
 
@@ -111,6 +102,6 @@ GH_TOKEN=ghp_... GH_REPO=johnd0e/BetterFarChangelog \
 
 - `master` is a pure upstream mirror — never modified directly
 - `automation` is the default branch — required for scheduled workflows
-- `release.yml` adds no external remotes — no `gh` CLI confusion between repos
+- `release.yml` adds no external remotes — fetches only from `origin`
 - `MAX_BUILDS_PER_RUN=10` caps output per run; daily schedule catches up naturally
 - Ascending order, stops on first error, safe to resume from same tag

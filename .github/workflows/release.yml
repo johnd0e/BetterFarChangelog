@@ -27,7 +27,6 @@ env:
 
 jobs:
   release:
-    # On workflow_run: only run if sync succeeded
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
@@ -38,14 +37,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: automation
-          fetch-depth: 1
-
-      - name: Checkout master (tags + commits) into ./upstream
-        uses: actions/checkout@v4
-        with:
-          ref: master
           fetch-depth: 0
-          path: upstream
+
+      - name: Fetch master and tags
+        run: |
+          git fetch origin master --force
+          git fetch origin --tags --force
+
+          TAG_COUNT=$(git tag --list 'builds/*' | wc -l | tr -d ' ')
+          echo "builds/* tag count: $TAG_COUNT"
+          if [ "$TAG_COUNT" -eq 0 ]; then
+            echo "::error::No tags matching 'builds/*' found."
+            exit 1
+          fi
 
       - name: Make scripts executable
         run: chmod +x ./scripts/*.sh
@@ -59,7 +63,6 @@ jobs:
           MAX_BUILDS_PER_RUN: ${{ env.MAX_BUILDS_PER_RUN }}
           UPSTREAM_COMPARE_BASE: ${{ env.UPSTREAM_COMPARE_BASE }}
           UPSTREAM_COMMIT_BASE: ${{ env.UPSTREAM_COMMIT_BASE }}
-          UPSTREAM_DIR: './upstream'
         run: |
           if [ -n "$START_TAG" ]; then
             ./scripts/process_tags.sh --start "$START_TAG" --limit "$LIMIT"
