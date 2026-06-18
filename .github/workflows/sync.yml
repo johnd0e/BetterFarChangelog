@@ -22,7 +22,7 @@ jobs:
         run: |
           git remote add upstream https://github.com/FarGroup/FarManager.git
           git fetch upstream master --force
-          git fetch upstream --tags --force
+          git fetch upstream 'refs/tags/builds/*:refs/tags/builds/*' --force
 
           if ! git ls-remote --exit-code upstream refs/heads/master > /dev/null 2>&1; then
             echo "::error::Upstream branch 'master' not found."
@@ -38,4 +38,8 @@ jobs:
 
           git reset --hard upstream/master
           git push origin master --force
-          git push origin --tags --force
+
+          # Push builds/* tags in batches to avoid Internal Server Error from too many refs
+          git tag --list 'builds/*' | \
+            sed 's#.*#+refs/tags/&:refs/tags/&#' | \
+            xargs -r -n 50 sh -c 'git push origin "$@" || exit 255' --
