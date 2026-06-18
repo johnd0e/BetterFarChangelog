@@ -7,7 +7,7 @@ This repository monitors `FarGroup/FarManager` for new `builds/*` tags, generate
 ## Repository structure
 
 ```
-.github/workflows/sync.yml      — sync origin/master and tags from upstream
+.github/workflows/sync.yml      — sync origin/master from upstream (GitHub Sync Fork API)
 .github/workflows/release.yml   — generate changelogs and publish GitHub Releases
 scripts/process_tags.sh         — orchestration: find unreleased tags, publish
 scripts/generate_changelog.sh   — generate release notes for one tag
@@ -25,12 +25,12 @@ LICENSE
 ### 1. `sync.yml` — Sync upstream
 
 - Triggers: daily schedule (00:00 UTC), `workflow_dispatch`.
-- Checks out `master`, fetches `FarGroup/FarManager` master and all tags, resets and force-pushes to `origin/master`.
+- Calls GitHub `merge-upstream` API to sync `origin/master` from upstream (same mechanism as **Sync fork** button in UI).
 
 ### 2. `release.yml` — Publish releases
 
 - Triggers: after `sync.yml` completes successfully, `workflow_dispatch`, `push` to `automation`.
-- Checks out `automation` branch, then fetches `origin/master` and all tags into the same working tree.
+- Checks out `automation` branch, fetches `origin/master`, and fetches `builds/*` tags directly from upstream.
 - Finds all `builds/*` tags without a GitHub Release and publishes up to `MAX_BUILDS_PER_RUN` (default: 10) per run.
 - Does **not** add any external git remote.
 
@@ -42,7 +42,7 @@ LICENSE
 
 | Trigger | Workflow | Behavior |
 |---|---|---|
-| `schedule` daily 00:00 UTC | `sync.yml` | Sync master + tags from upstream |
+| `schedule` daily 00:00 UTC | `sync.yml` | Sync master from upstream |
 | `sync.yml` success | `release.yml` | Auto-publish new releases |
 | `workflow_dispatch` | both | Manual run |
 | `push` to `automation` | `release.yml` | Smoke test |
@@ -102,6 +102,6 @@ GH_TOKEN=ghp_... GH_REPO=johnd0e/BetterFarChangelog \
 
 - `master` is a pure upstream mirror — never modified directly
 - `automation` is the default branch — required for scheduled workflows
-- `release.yml` adds no external remotes — fetches only from `origin`
+- `release.yml` adds no external remotes — fetches `builds/*` tags directly from upstream URL
 - `MAX_BUILDS_PER_RUN=10` caps output per run; daily schedule catches up naturally
 - Ascending order, stops on first error, safe to resume from same tag

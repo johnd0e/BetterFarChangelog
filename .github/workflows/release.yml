@@ -39,10 +39,11 @@ jobs:
           ref: automation
           fetch-depth: 0
 
-      - name: Fetch master and tags
+      - name: Fetch master and upstream builds tags
         run: |
           git fetch origin master --force
-          git fetch origin --tags --force
+          git fetch https://github.com/FarGroup/FarManager.git \
+            'refs/tags/builds/*:refs/tags/builds/*' --force
 
           TAG_COUNT=$(git tag --list 'builds/*' | wc -l | tr -d ' ')
           echo "builds/* tag count: $TAG_COUNT"
