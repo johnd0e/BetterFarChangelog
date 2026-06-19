@@ -17,10 +17,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           UPSTREAM_SHA=$(gh api repos/FarGroup/FarManager/git/refs/heads/master --jq '.object.sha')
-          ERR_FILE=$(mktemp)
+          REF_RESPONSE=$(mktemp)
+          HTTP_CODE=$(curl -sS \
+            -o "$REF_RESPONSE" \
+            -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/master")
 
-          if CURRENT_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" --jq '.object.sha' 2>"$ERR_FILE"); then
-            rm -f "$ERR_FILE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            CURRENT_SHA=$(jq -r '.object.sha' "$REF_RESPONSE")
+            rm -f "$REF_RESPONSE"
 
             if [ "$UPSTREAM_SHA" = "$CURRENT_SHA" ]; then
               echo "Branch is already up to date"
@@ -31,18 +39,17 @@ jobs:
               "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" \
               -f sha="$UPSTREAM_SHA" \
               -F force=true
-
             echo "Successfully force-synced master to upstream ($UPSTREAM_SHA)"
           else
-            STATUS_CODE=$(sed -n 's/.*(HTTP \([0-9][0-9][0-9]\)).*/\1/p' "$ERR_FILE" | tail -n 1)
-            if [ "$STATUS_CODE" != "404" ]; then
+          else
+            if [ "$HTTP_CODE" != "404" ]; then
               echo "::error::Failed to query current master ref."
-              cat "$ERR_FILE"
-              rm -f "$ERR_FILE"
+              cat "$REF_RESPONSE"
+              rm -f "$REF_RESPONSE"
               exit 1
             fi
 
-            rm -f "$ERR_FILE"
+            rm -f "$REF_RESPONSE"
             gh api --method POST \
               "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref='refs/heads/master' \
