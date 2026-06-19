@@ -30,19 +30,21 @@ jobs:
           REF_STATUS=$(mktemp)
 
           if gh api --include --silent "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" >"$REF_STATUS" 2>&1; then
-            HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_STATUS")
+            REF_LOOKUP_EXIT=0
           else
-            HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_STATUS")
-
-            if [ "$HTTP_CODE" != "404" ]; then
-              echo "::error::Failed to query current master ref."
-              cat "$REF_STATUS"
-              rm -f "$REF_STATUS"
-              exit 1
-            fi
+            REF_LOOKUP_EXIT=$?
           fi
 
-          if ! printf '%s\n' "$HTTP_CODE" | grep -Eq '^(200|404)$'; then
+          HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_STATUS")
+
+          if [ "$REF_LOOKUP_EXIT" -eq 0 ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Failed to query current master ref."
+            cat "$REF_STATUS"
+            rm -f "$REF_STATUS"
+            exit 1
+          fi
+
+          if [ "$REF_LOOKUP_EXIT" -ne 0 ] && [ "$HTTP_CODE" != "404" ]; then
             echo "::error::Failed to query current master ref."
             cat "$REF_STATUS"
             rm -f "$REF_STATUS"
@@ -68,16 +70,22 @@ jobs:
               exit 0
             fi
 
-            gh api --method PATCH \
+            if ! gh api --method PATCH \
               "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" \
               -f sha="$UPSTREAM_SHA" \
-              -F force=true
+              -F force=true; then
+              echo "::error::Failed to update current master ref."
+              exit 1
+            fi
             echo "Successfully force-synced master to upstream ($UPSTREAM_SHA)"
           else
-            gh api --method POST \
+            if ! gh api --method POST \
               "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref='refs/heads/master' \
-              -f sha="$UPSTREAM_SHA"
+              -f sha="$UPSTREAM_SHA"; then
+              echo "::error::Failed to create current master ref."
+              exit 1
+            fi
 
             echo "Successfully created master from upstream ($UPSTREAM_SHA)"
           fi
