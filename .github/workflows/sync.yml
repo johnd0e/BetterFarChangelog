@@ -30,21 +30,14 @@ jobs:
           REF_STATUS=$(mktemp)
 
           if gh api --include --silent "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" >"$REF_STATUS" 2>&1; then
-            REF_LOOKUP_EXIT=0
+            EXPECTED_HTTP_CODE=200
           else
-            REF_LOOKUP_EXIT=$?
+            EXPECTED_HTTP_CODE=404
           fi
 
           HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_STATUS")
 
-          if [ "$REF_LOOKUP_EXIT" -eq 0 ] && [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Failed to query current master ref."
-            cat "$REF_STATUS"
-            rm -f "$REF_STATUS"
-            exit 1
-          fi
-
-          if [ "$REF_LOOKUP_EXIT" -ne 0 ] && [ "$HTTP_CODE" != "404" ]; then
+          if [ "$HTTP_CODE" != "$EXPECTED_HTTP_CODE" ]; then
             echo "::error::Failed to query current master ref."
             cat "$REF_STATUS"
             rm -f "$REF_STATUS"
