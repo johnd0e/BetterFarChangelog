@@ -41,7 +41,6 @@ jobs:
               -F force=true
             echo "Successfully force-synced master to upstream ($UPSTREAM_SHA)"
           else
-          else
             if [ "$HTTP_CODE" != "404" ]; then
               echo "::error::Failed to query current master ref."
               cat "$REF_RESPONSE"
