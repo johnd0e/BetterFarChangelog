@@ -32,27 +32,30 @@ jobs:
           fi
 
           REF_RESPONSE_FILE=$(mktemp)
+          HTTP_CODE=""
+
+          extract_http_code() {
+            sed -n '1s/^HTTP\/[^ ]* \([0-9][0-9][0-9]\).*/\1/p' "$1"
+          }
 
           if gh api --include --silent "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" >"$REF_RESPONSE_FILE" 2>&1; then
-            EXPECTED_HTTP_CODE=200
+            HTTP_CODE=$(extract_http_code "$REF_RESPONSE_FILE")
+
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "::error::Failed to parse current master ref response status."
+              cat "$REF_RESPONSE_FILE"
+              rm -f "$REF_RESPONSE_FILE"
+              exit 1
+            fi
           else
-            EXPECTED_HTTP_CODE=404
-          fi
+            HTTP_CODE=$(extract_http_code "$REF_RESPONSE_FILE")
 
-          HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_RESPONSE_FILE")
-
-          if [ -z "$HTTP_CODE" ]; then
-            echo "::error::Failed to parse current master ref response status."
-            cat "$REF_RESPONSE_FILE"
-            rm -f "$REF_RESPONSE_FILE"
-            exit 1
-          fi
-
-          if [ "$HTTP_CODE" != "$EXPECTED_HTTP_CODE" ]; then
-            echo "::error::Failed to query current master ref."
-            cat "$REF_RESPONSE_FILE"
-            rm -f "$REF_RESPONSE_FILE"
-            exit 1
+            if [ "$HTTP_CODE" != "404" ]; then
+              echo "::error::Failed to query current master ref."
+              cat "$REF_RESPONSE_FILE"
+              rm -f "$REF_RESPONSE_FILE"
+              exit 1
+            fi
           fi
 
           rm -f "$REF_RESPONSE_FILE"
@@ -76,7 +79,7 @@ jobs:
 
             if ! gh api --method PATCH \
               "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" \
-              -f sha="$UPSTREAM_SHA" \
+              -F sha="$UPSTREAM_SHA" \
               -F force=true; then
               echo "::error::Failed to update current master ref."
               exit 1
@@ -85,8 +88,8 @@ jobs:
           else
             if ! gh api --method POST \
               "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f ref='refs/heads/master' \
-              -f sha="$UPSTREAM_SHA"; then
+              -F ref='refs/heads/master' \
+              -F sha="$UPSTREAM_SHA"; then
               echo "::error::Failed to create current master ref."
               exit 1
             fi
