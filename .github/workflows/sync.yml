@@ -16,11 +16,52 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          UPSTREAM_SHA=$(gh api repos/FarGroup/FarManager/git/refs/heads/master --jq '.object.sha')
-          REF_ERROR=$(mktemp)
+          if ! UPSTREAM_SHA=$(gh api repos/FarGroup/FarManager/git/refs/heads/master --jq '.object.sha'); then
+            echo "::error::Failed to query upstream master ref."
+            exit 1
+          fi
 
-          if CURRENT_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" --jq '.object.sha' 2>"$REF_ERROR"); then
-            rm -f "$REF_ERROR"
+          if ! printf '%s\n' "$UPSTREAM_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Failed to query upstream master ref."
+            echo "Unexpected SHA value: $UPSTREAM_SHA"
+            exit 1
+          fi
+
+          REF_STATUS=$(mktemp)
+
+          if gh api --include --silent "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" >"$REF_STATUS" 2>&1; then
+            HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_STATUS")
+          else
+            HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_STATUS")
+
+            if [ "$HTTP_CODE" != "404" ]; then
+              echo "::error::Failed to query current master ref."
+              cat "$REF_STATUS"
+              rm -f "$REF_STATUS"
+              exit 1
+            fi
+          fi
+
+          if ! printf '%s\n' "$HTTP_CODE" | grep -Eq '^(200|404)$'; then
+            echo "::error::Failed to query current master ref."
+            cat "$REF_STATUS"
+            rm -f "$REF_STATUS"
+            exit 1
+          fi
+
+          rm -f "$REF_STATUS"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            if ! CURRENT_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" --jq '.object.sha'); then
+              echo "::error::Failed to query current master ref."
+              exit 1
+            fi
+
+            if ! printf '%s\n' "$CURRENT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::Failed to query current master ref."
+              echo "Unexpected SHA value: $CURRENT_SHA"
+              exit 1
+            fi
 
             if [ "$UPSTREAM_SHA" = "$CURRENT_SHA" ]; then
               echo "Branch is already up to date"
@@ -33,14 +74,6 @@ jobs:
               -F force=true
             echo "Successfully force-synced master to upstream ($UPSTREAM_SHA)"
           else
-            if ! grep -q 'HTTP 404' "$REF_ERROR"; then
-              echo "::error::Failed to query current master ref."
-              cat "$REF_ERROR"
-              rm -f "$REF_ERROR"
-              exit 1
-            fi
-
-            rm -f "$REF_ERROR"
             gh api --method POST \
               "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref='refs/heads/master' \
