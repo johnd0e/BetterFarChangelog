@@ -16,35 +16,46 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          validate_sha() {
+            printf '%s\n' "$1" | grep -Eq '^[0-9a-f]{40}$'
+          }
+
           if ! UPSTREAM_SHA=$(gh api repos/FarGroup/FarManager/git/refs/heads/master --jq '.object.sha'); then
             echo "::error::Failed to query upstream master ref."
             exit 1
           fi
 
-          if ! printf '%s\n' "$UPSTREAM_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+          if ! validate_sha "$UPSTREAM_SHA"; then
             echo "::error::Invalid SHA format received from upstream master ref."
             echo "Unexpected SHA value: $UPSTREAM_SHA"
             exit 1
           fi
 
-          REF_STATUS=$(mktemp)
+          REF_RESPONSE_FILE=$(mktemp)
 
-          if gh api --include --silent "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" >"$REF_STATUS" 2>&1; then
+          if gh api --include --silent "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" >"$REF_RESPONSE_FILE" 2>&1; then
             EXPECTED_HTTP_CODE=200
           else
             EXPECTED_HTTP_CODE=404
           fi
 
-          HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_STATUS")
+          HTTP_CODE=$(awk 'NR == 1 { print $2 }' "$REF_RESPONSE_FILE")
 
-          if [ "$HTTP_CODE" != "$EXPECTED_HTTP_CODE" ]; then
-            echo "::error::Failed to query current master ref."
-            cat "$REF_STATUS"
-            rm -f "$REF_STATUS"
+          if [ -z "$HTTP_CODE" ]; then
+            echo "::error::Failed to parse current master ref response status."
+            cat "$REF_RESPONSE_FILE"
+            rm -f "$REF_RESPONSE_FILE"
             exit 1
           fi
 
-          rm -f "$REF_STATUS"
+          if [ "$HTTP_CODE" != "$EXPECTED_HTTP_CODE" ]; then
+            echo "::error::Failed to query current master ref."
+            cat "$REF_RESPONSE_FILE"
+            rm -f "$REF_RESPONSE_FILE"
+            exit 1
+          fi
+
+          rm -f "$REF_RESPONSE_FILE"
 
           if [ "$HTTP_CODE" = "200" ]; then
             if ! CURRENT_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" --jq '.object.sha'); then
@@ -52,7 +63,7 @@ jobs:
               exit 1
             fi
 
-            if ! printf '%s\n' "$CURRENT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            if ! validate_sha "$CURRENT_SHA"; then
               echo "::error::Invalid SHA format received from current master ref."
               echo "Unexpected SHA value: $CURRENT_SHA"
               exit 1
