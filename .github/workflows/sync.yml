@@ -17,7 +17,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           validate_sha() {
-            printf '%s\n' "$1" | grep -Eq '^[0-9a-f]{40}$'
+            printf '%s\n' "$1" | grep -Eq '^[0-9a-fA-F]{40}$'
+          }
+
+          invalid_sha_error() {
+            echo "::error::Invalid SHA format received from $1."
+            echo "Unexpected SHA value: $2"
           }
 
           if ! UPSTREAM_SHA=$(gh api repos/FarGroup/FarManager/git/refs/heads/master --jq '.object.sha'); then
@@ -26,8 +31,7 @@ jobs:
           fi
 
           if ! validate_sha "$UPSTREAM_SHA"; then
-            echo "::error::Invalid SHA format received from upstream master ref."
-            echo "Unexpected SHA value: $UPSTREAM_SHA"
+            invalid_sha_error "upstream master ref" "$UPSTREAM_SHA"
             exit 1
           fi
 
@@ -76,8 +80,7 @@ jobs:
             fi
 
             if ! validate_sha "$CURRENT_SHA"; then
-              echo "::error::Invalid SHA format received from current master ref."
-              echo "Unexpected SHA value: $CURRENT_SHA"
+              invalid_sha_error "current master ref" "$CURRENT_SHA"
               exit 1
             fi
 
