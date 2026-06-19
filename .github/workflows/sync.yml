@@ -12,22 +12,30 @@ jobs:
       contents: write
 
     steps:
-      - name: Sync master from upstream (force reset)
+      - name: Sync master from upstream (non-fork mirror)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           UPSTREAM_SHA=$(gh api repos/FarGroup/FarManager/git/refs/heads/master --jq '.object.sha')
+          CURRENT_SHA=""
 
-          CURRENT_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" --jq '.object.sha')
+          if CURRENT_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" --jq '.object.sha' 2>/dev/null); then
+            if [ "$UPSTREAM_SHA" = "$CURRENT_SHA" ]; then
+              echo "Branch is already up to date"
+              exit 0
+            fi
 
-          if [ "$UPSTREAM_SHA" = "$CURRENT_SHA" ]; then
-            echo "Branch is already up to date"
-            exit 0
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" \
+              -f sha="$UPSTREAM_SHA" \
+              -F force=true
+
+            echo "Successfully force-synced master to upstream ($UPSTREAM_SHA)"
+          else
+            gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref='refs/heads/master' \
+              -f sha="$UPSTREAM_SHA"
+
+            echo "Successfully created master from upstream ($UPSTREAM_SHA)"
           fi
-
-          gh api --method PATCH \
-            "repos/${GITHUB_REPOSITORY}/git/refs/heads/master" \
-            -f sha="$UPSTREAM_SHA" \
-            -F force=true
-
-          echo "Successfully force-synced master to upstream ($UPSTREAM_SHA)"

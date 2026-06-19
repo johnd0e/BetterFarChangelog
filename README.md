@@ -7,7 +7,7 @@ This repository monitors `FarGroup/FarManager` for new `builds/*` tags, generate
 ## Repository structure
 
 ```
-.github/workflows/sync.yml      — sync origin/master from upstream (GitHub Sync Fork API)
+.github/workflows/sync.yml      — force-sync origin/master from upstream for a non-fork repository
 .github/workflows/release.yml   — generate changelogs and publish GitHub Releases
 scripts/process_tags.sh         — orchestration: find unreleased tags, publish
 scripts/generate_changelog.sh   — generate release notes for one tag
@@ -25,7 +25,7 @@ LICENSE
 ### 1. `sync.yml` — Sync upstream
 
 - Triggers: daily schedule (00:00 UTC), `workflow_dispatch`.
-- Calls GitHub `merge-upstream` API to sync `origin/master` from upstream (same mechanism as **Sync fork** button in UI).
+- Reads the latest `FarGroup/FarManager` `master` SHA and directly creates or force-updates `origin/master` via GitHub Git refs API.
 
 ### 2. `release.yml` — Publish releases
 
