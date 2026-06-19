@@ -22,7 +22,7 @@ jobs:
           fi
 
           if ! printf '%s\n' "$UPSTREAM_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::Failed to query upstream master ref."
+            echo "::error::Invalid SHA format received from upstream master ref."
             echo "Unexpected SHA value: $UPSTREAM_SHA"
             exit 1
           fi
@@ -60,7 +60,7 @@ jobs:
             fi
 
             if ! printf '%s\n' "$CURRENT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-              echo "::error::Failed to query current master ref."
+              echo "::error::Invalid SHA format received from current master ref."
               echo "Unexpected SHA value: $CURRENT_SHA"
               exit 1
             fi
